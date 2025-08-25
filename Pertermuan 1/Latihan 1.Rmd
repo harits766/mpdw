@@ -1,1 +1,4 @@
-![](image/test.jpg)x=3 x
+```{r}
+install.packages(c("forecast", "graphics", "TTR", "TSA", "aTSA", "lmtest", "MLmetrics",
+"car", "dplyr", "MASS", "tsibble", "tseries", "ggplot2", "nortest" ))
+```
