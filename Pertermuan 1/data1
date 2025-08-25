@@ -1,1 +1,5 @@
+data <- read.csv("C:/Users/Lenovo/Downloads/daily-minimum-temperatures-in-me.csv")
+
+head(data)
+data
 
