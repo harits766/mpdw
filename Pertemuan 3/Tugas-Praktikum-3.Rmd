@@ -1,0 +1,268 @@
+```{r, echo=FALSE}
+#PACKAGES
+#install.packages("dLagM") #install jika belum ada
+#install.packages("dynlm") #install jika belum ada
+#install.packages("MLmetrics") #install jika belum ada
+library(dLagM)
+library(dynlm)
+library(MLmetrics)
+library(lmtest)
+library(car)
+```
+
+```{r}
+mydata <- read.csv("C:/Users/Lenovo/Downloads/newdelhi.csv")
+head(mydata)
+```
+
+```{r}
+mydata$t <- 1:nrow(mydata)
+mydata$Yt <- mydata$AQI
+mydata$Yt_1 <- c(NA, mydata$Yt[-nrow(mydata)])
+names(mydata)  # cek nama kolom yang ada
+# 4. Sisakan kolom yang diinginkan
+kolom_yang_disimpan <- c("t", "Yt", "Yt_1", "CO")
+datafiks <- mydata[,kolom_yang_disimpan]
+
+# Lihat 6 baris pertama dari hasilnya
+head(datafiks)
+```
+```{r}
+nrow(datafiks)
+```
+```{r}
+#SPLIT DATA
+train<-datafiks[1:50,]
+test<-datafiks[51:72,]
+# Cek jumlah baris
+nrow(train)
+nrow(test)
+
+```
+```{r}
+#data time series
+train.ts<-ts(train)
+test.ts<-ts(test)
+data.ts<-ts(datafiks)
+```
+
+```{r}
+#MODEL KOYCK
+model.koyck <- koyckDlm(x = train$CO, y = train$Yt)
+AIC(model.koyck)
+BIC(model.koyck)
+summary(model.koyck)
+```
+
+#Model regresi berganda dengan prediktor **Y.1** dan **X.t** memberikan persamaan:
+
+$$
+\hat{Y} = 5.4283 \;+\; 0.9103 \, Y.1 \;-\; 0.0151 \, X.t
+$$
+
+#* **Intercept**: 5.4283, tidak signifikan (p = 0.608).
+#* **Y.1**: koefisien 0.9103, sangat signifikan (p < 0.001). Artinya, setiap kenaikan 1 unit pada Y.1 akan meningkatkan Y sebesar 0.9103, dengan asumsi variabel lain konstan.
+#* **X.t**: koefisien -0.0151, tidak signifikan (p = 0.803). Artinya, variabel X.t tidak berpengaruh nyata terhadap Y.
+
+#Ukuran kesesuaian model:
+
+#* Residual standard error = 0.9679 dengan 46 df.
+#* $R^2 = 0.8238$, Adjusted $R^2 = 0.8162$. Jadi, sekitar #81.62% variasi Y dapat dijelaskan oleh model.
+#* Uji simultan (Wald test) signifikan (p-value < 2.2e-16), sehingga secara bersama-sama Y.1 dan X.t berpengaruh terhadap Y.
+
+#**Kesimpulan:** model ini cukup baik, dengan Y.1 sebagai prediktor utama yang berpengaruh signifikan, sedangkan X.t tidak signifikan.
+
+
+```{r}
+fore.koyck <- forecast(model = model.koyck, x=test$CO, h=22)
+fore.koyck
+mape.koyck <- MAPE(fore.koyck$forecasts, test$Yt)
+mape.koyck #data test
+#akurasi data training
+GoF(model.koyck)
+```
+# - Model Koyck cukup baik karena nilai MAE dan MAPE rendah, 
+#   serta MPE mendekati nol (tidak ada bias prediksi yang signifikan).
+# - Nilai MASE ~1 menunjukkan performa model mirip dengan metode peramalan naïve.
+# - Nilai MRAE dan GMRAE yang sangat besar biasanya dipengaruhi oleh adanya nilai ekstrem dalam data.
+
+# Secara umum, model Koyck mampu memberikan hasil prediksi yang cukup akurat,
+# namun masih ada indikasi beberapa error ekstrem yang membuat metrik relatif (MRAE/GMRAE) menjadi besar.
+
+
+```{r eval=FALSE, error=FALSE}
+#distributed lag dengan lag=2
+dlm(x = datafiks$CO,
+    y = datafiks$Yt,
+    q = 2,
+    remove)
+
+```
+```{r}
+model.dlm <- dlm(x = train$CO,y = train$Yt , q = 2)
+summary(model.dlm)
+AIC(model.dlm)
+BIC(model.dlm)
+```
+#Model Distributed Lag dengan lag = 2 menunjukkan bahwa hanya variabel X_t dengan p value 0.00106
+#yang berpengaruh signifikan terhadap Y (p < 0.01), sedangkan X_{t-1} dan X_{t-2} 
+#tidak signifikan. Nilai Adjusted R-squared sebesar 0.4338 #menandakan bahwa model 
+#mampu menjelaskan sekitar 43% variasi data. Hasil uji F signifikan (p < 0.001), 
+#sehingga model secara keseluruhan layak digunakan. Nilai AIC (193.72) dan BIC (203.08) 
+#dapat dipakai sebagai pembanding dengan model lain, di mana nilai lebih rendah 
+#menunjukkan model yang lebih baik.
+
+```{r}
+fore.dlm <- forecast(model = model.dlm, x=test$CO, h=22)
+fore.dlm
+mape.dlm <- MAPE(fore.dlm$forecasts, test$Yt)
+mape.dlm
+#akurasi data training
+GoF(model.dlm)
+```
+# Hasil evaluasi model DLM pada data uji:
+# MAE = 1.22 → rata-rata kesalahan absolut prediksi cukup kecil.
+# MPE ≈ 0 → prediksi tidak bias (cenderung seimbang).
+# MAPE = 4.5% → rata-rata kesalahan relatif masih rendah, akurasi model baik.
+# sMAPE = 4.4% → mendukung hasil MAPE yang rendah.
+# MASE = 1.94 → error sekitar 2 kali lebih besar dibanding model naïve.
+# MSE = 2.69 → rata-rata kuadrat error relatif kecil.
+# MRAE & GMRAE sangat besar → menunjukkan adanya error ekstrem pada beberapa titik.
+#
+# Kesimpulan singkat: Model DLM mampu memberikan prediksi dengan tingkat akurasi
+# cukup baik (MAPE rendah), meskipun ada indikasi outlier yang membuat MRAE/GMRAE besar.
+
+```{r}
+#penentuan lag optimum 
+finiteDLMauto(formula = Yt ~ CO,
+              train, q.min = 1, q.max = 10,
+              model.type = "dlm", error.type = "AIC", trace = TRUE)
+```
+```{r}
+#model dlm dengan lag optimum
+model.dlm2 <- dlm(x = train$CO,y = train$Yt , q = 10)
+summary(model.dlm2)
+AIC(model.dlm2)
+BIC(model.dlm2)
+```
+#Dari hasil tersebut terdapat beberapa peubah yang berpengaruh signifikan terhadap taraf nyata 5% yaitu x.t
+#Yt = -43.344320 + 0.457538*Xt + 0.174373*X_{t-1} - 0.162361*X_{t-2} + 0.149157*X_{t-3} + 0.013274*X_{t-4}- 0.277441*X_{t-5} - 0.130064*X_{t-6} - 0.039356*X_{t-7} - 0.117870*X_{t-8} + 0.007332*X_{t-9} + 0.017841*X_{t-10} + e_t
+
+```{r}
+#peramalan dan akurasi
+fore.dlm2 <- forecast(model = model.dlm2, x=test$CO, h=22)
+
+#akurasi data test
+mape.dlm2<- MAPE(fore.dlm2$forecasts, test$Yt)
+mape.dlm2
+
+#akurasi data training
+GoF(model.dlm2)
+```
+#Berdasarkan hasil peramalan menggunakan model DLM2, diperoleh nilai MAE sebesar 0.4599 dan MAPE sebesar 0.0164 (1.65%) yang menunjukkan bahwa kesalahan prediksi relatif kecil. Nilai MPE (-0.0004) mendekati nol, artinya model tidak cenderung under-forecast maupun over-forecast. Selain itu, nilai MASE sebesar 0.8154 (< 1) menandakan performa model cukup baik jika dibandingkan dengan model benchmark sederhana. Walaupun nilai MRAE dan GMRAE cukup besar, hal tersebut umumnya disebabkan adanya pembagi yang sangat kecil atau nilai ekstrem pada data. Secara keseluruhan, model DLM2 dapat dikatakan memiliki tingkat akurasi yang baik untuk memprediksi data pada periode uji.
+
+```{r, eval=FALSE}
+#Pemodelan AR
+library(dLagM)
+model.ardl <- ardlDlm(Yt ~ CO, data = datafiks, p = 1, q = 1)
+summary(model.ardl)
+```
+
+# Statistik model:
+# Residual standard error : 0.8898 → kesalahan prediksi relatif kecil
+# R-squared               : 0.9179 → model mampu menjelaskan ~91.8% variasi data
+# Adjusted R-squared      : 0.9142 → model tetap kuat meskipun mempertimbangkan jumlah variabel
+# F-statistic             : 249.7 (p < 2.2e-16) → model signifikan secara keseluruhan
+
+# Interpretasi:
+# Model ARDL(1,1) ini menunjukkan bahwa variabel CO berpengaruh signifikan 
+# baik pada periode saat ini (positif) maupun lag 1 (negatif), 
+# serta nilai Yt pada periode sebelumnya (lag 1) memiliki pengaruh yang sangat besar 
+# terhadap Yt saat ini. Secara keseluruhan, model memiliki goodness-of-fit yang sangat baik.
+
+### *Lag* Optimum
+
+```{r}
+#penentuan lag optimum
+model.ardl.opt <- ardlBoundOrders(data = data.frame(datafiks), ic = "AIC", 
+                                  formula = Yt ~ CO )
+model.ardl.opt
+min_p=c()
+for(i in 1:6){
+  min_p[i]=min(model.ardl.opt$Stat.table[[i]])
+}
+q_opt=which(min_p==min(min_p, na.rm = TRUE))
+p_opt=which(model.ardl.opt$Stat.table[[q_opt]] == 
+              min(model.ardl.opt$Stat.table[[q_opt]], na.rm = TRUE))
+data.frame("q_optimum" = q_opt, "p_optimum" = p_opt, 
+           "AIC"=model.ardl.opt$min.Stat)
+```
+#Lag Optimum di p=15, q=6
+```{r}
+#Pemodelan AR
+library(dLagM)
+model.ardl2 <- ardlDlm(Yt ~ CO, data = datafiks, q = 6, p = 15)
+summary(model.ardl2)
+AIC(model.ardl2)
+```
+# Persamaan Lengkap:
+# Y_t = -34.814113 + 0.151622*CO_t + 0.130831*CO_{t-1} - 0.246397*CO_{t-2} +
+#        0.098232*CO_{t-3} - 0.018441*CO_{t-4} - 0.233620*CO_{t-5} + 0.396006*CO_{t-6} -
+#        0.077406*CO_{t-7} - 0.127329*CO_{t-8} + 0.175989*CO_{t-9} - 0.054098*CO_{t-10} -
+#        0.031590*CO_{t-11} + 0.039895*CO_{t-12} - 0.036734*CO_{t-13} + 0.049980*CO_{t-14} +
+#        0.001586*CO_{t-15} + 1.068040*Y_{t-1} - 0.135246*Y_{t-2} - 0.104746*Y_{t-3} +
+#        0.208809*Y_{t-4} - 0.201507*Y_{t-5} - 0.174043*Y_{t-6} + e_t
+# Secara keseluruhan, model ini menunjukkan bahwa variabel Y sangat dipengaruhi
+# oleh nilainya sendiri di satu periode sebelumnya (Yt.1). Selain itu, variabel
+# independen CO juga memberikan pengaruh, namun pengaruhnya yang paling kuat
+# dan signifikan berasal dari 6 periode sebelumnya (CO.6). Beberapa lag CO
+# lainnya (lag 2 dan 5) juga menunjukkan pengaruh yang marginal.
+# Variabel yang tidak signifikan mungkin dapat dipertimbangkan untuk dikeluarkan
+# dari model untuk membuat model yang lebih sederhana.
+
+```{r}
+#peramalan dan akurasi
+fore.ardl2 <- forecast(model = model.ardl2, x=test$CO, h=22)
+
+#akurasi data test
+mape.ardl2<- MAPE(fore.ardl2$forecasts, test$Yt)
+mape.ardl2
+
+#akurasi data training
+GoF(model.ardl2)
+```
+#Model mampu memprediksi dengan rata-rata kesalahan hanya 1.50% (berdasarkan MAPE).
+#Model ini jauh lebih baik daripada metode prediksi dasar/naif (berdasarkan MASE < 1).
+#Hasil prediksinya seimbang dan tidak cenderung berat sebelah (berdasarkan MPE ≈ 0).
+# Model ini solid dan dapat diandalkan untuk analisis serta peramalan lebih lanjut.
+
+## Perbandingan Model
+
+#Membuat tabel ringkas akurasi model berdasarkan nilai MAPE (Mean Absolute Percentage Error).
+
+```{r}
+akurasi <- matrix(c(mape.koyck, mape.dlm, mape.dlm2, mape.ardl2))
+row.names(akurasi)<- c("Koyck","DLM 1","DLM 2","Autoregressive")
+colnames(akurasi) <- c("MAPE")
+akurasi
+```
+#Berdasarkan nilai MAPE, model paling optimum didapat pada Model Autoregressive karena memiliki nilai MAPE yang terkecil.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
