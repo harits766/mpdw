@@ -1,0 +1,441 @@
+```{r}
+#Pembangkitan dengan cara manual
+set.seed(123) 
+n <- 300
+theta1 <- 0.4
+theta2 <- 0.6
+
+# error white noise
+e <- rnorm(n + 2, mean=0, sd=1)
+
+# manual generate MA(2)
+y <- numeric(n)
+for (t in 3:(n+2)) {
+  y[t-2] <- e[t] + theta1*e[t-1] + theta2*e[t-2]
+}
+y <- ts(y)
+y
+```
+
+
+```{r}
+#pembangkitan dengan arima.sim
+set.seed(123)
+y2 <- arima.sim(n=300, list(ma=c(0.4,0.6)))
+y2
+```
+```{r}
+par(mfrow=c(2,2))
+plot(y, main="Time Series MA(2)", ylab="Yt")
+acf(y, main="ACF MA(2)")
+pacf(y, main="PACF MA(2)")
+library(TSA)
+eacf(y)   # Extended ACF
+```
+#Berdasarkan plot time series, terlihat bahwa data MA(2) yang dibangkitkan stasioner dalam rataan
+```{r}
+#ScatterPlot 
+par(mfrow=c(1,3))
+plot(y[-1], y[-length(y)], main="Yt vs Yt-1", xlab="Yt-1", ylab="Yt")
+plot(y[-(1:2)], y[-((length(y)-1):length(y))], main="Yt vs Yt-2", xlab="Yt-2", ylab="Yt")
+plot(y[-(1:3)], y[-((length(y)-2):length(y))], main="Yt vs Yt-3", xlab="Yt-3", ylab="Yt")
+```
+```{r}
+#Autokorelasi
+acf_values <- acf(y, plot=FALSE)
+acf_values$acf[1:5]   # ambil sampai lag 4 misalnya
+
+```
+```{r}
+#Autokorelasi teoretis
+theta1 <- 0.4
+theta2 <- 0.6
+sigma2 <- 1
+
+gamma0 <- sigma2*(1 + theta1^2 + theta2^2)
+gamma1 <- sigma2*(theta1 + theta1*theta2)
+gamma2 <- sigma2*theta2
+
+rho0 <- 1
+rho1 <- gamma1/gamma0
+rho2 <- gamma2/gamma0
+rho3 <- 0
+rho4 <- 0
+
+theo_acf <- c(rho0, rho1, rho2, rho3, rho4)
+theo_acf
+```
+#Hasil perhitungan autokorelasi secara teoretis dan data hasil bangkitan cukup sama
+
+```{r}
+#AR(2)
+set.seed(123) 
+n <- 300
+phi1 <- 0.5
+phi2 <- 0.2
+
+# Bangkitkan data AR(2) secara manual
+e <- rnorm(n, mean = 0, sd = 1)  # error white noise
+y <- numeric(n)
+y[1] <- e[1]   # inisialisasi
+y[2] <- e[2]
+
+for (t in 3:n) {
+  y[t] <- phi1*y[t-1] + phi2*y[t-2] + e[t]
+}
+y
+```
+```{r}
+#Menggunakan arima.sim
+set.seed(1234)
+y_sim <- arima.sim(list(order = c(2,0,0), ar = c(phi1, phi2)), n = n)
+y_sim
+```
+```{r}
+#Plot time series
+par(mfrow = c(1,1))
+ts.plot(y, main = "Simulated AR(2) (phi1=0.5, phi2=0.2)", ylab = "y", col="black")
+```
+#terlihat cukup stasioner
+```{r}
+#ACF/PACF/EACF
+par(mfrow = c(1,3))
+acf(y)
+pacf(y)
+TSA::eacf(y)    # EACF: perhatikan pola segitiga nol untuk identifikasi
+par(mfrow = c(1,1))
+```
+#tidak cutoff tepat pertama di lag kedua karena nggak mungkin PACF ACF manual betul-betul nol setelah lag ke-2 (karena itu sifat teoritis, bukan data sampel). Yang penting: tendensinya terlihat cut-off di lag ke-2 kalau datanya cukup banyak dan noise nggak terlalu besar.
+```{r}
+#Yt
+yt_ar <- y[-1]
+yt_ar
+#Yt-1
+yt_1_ar <- y[-300]
+yt_1_ar
+
+#Yt
+yt_ar2 <- y[-c(1,2)]
+yt_ar2
+#Yt-2
+yt_2_ar <- y[-c(299,300)]
+yt_2_ar
+
+#Yt
+yt_ar3 <- y[-c(1,2,3)]
+yt_ar3
+#Yt-2
+yt_3_ar <- y[-c(298,299,300)]
+yt_3_ar
+```
+```{r}
+plot(y=yt_ar,x=yt_1_ar)
+plot(y=yt_ar2,x=yt_2_ar)
+plot(y=yt_ar3,x=yt_3_ar)
+```
+#terdapat hubungan positif antara Yt dengan YT2-1-2dan-3
+
+```{r}
+cor(yt_ar,yt_1_ar)
+cor(yt_ar2,yt_2_ar)
+cor(yt_ar3,yt_3_ar)
+```
+```{r}
+#Autocorrelation teoritis
+phi1 <- 0.5
+phi2 <- 0.2
+
+# Simpan sampai lag 3
+theo_manual <- numeric(4)  
+
+# rho0
+theo_manual[1] <- 1  
+
+# rho1
+theo_manual[2] <- phi1 / (1 - phi2)
+
+# rho2
+theo_manual[3] <- phi1 * theo_manual[2] + phi2 * theo_manual[1]
+
+# rho3
+theo_manual[4] <- phi1 * theo_manual[3] + phi2 * theo_manual[2]
+
+# Masukkan ke dataframe
+theo_manual_df <- data.frame(
+  lag = 0:3,
+  rho = round(theo_manual, 6)
+)
+
+theo_manual_df
+
+```
+#korelasi simulasi dan teoritis mendekati
+
+```{r}
+#pembangkitan anjay pembangkitan ARMA (2,2)
+pkgs <- c("TSA","tseries")
+for(p in pkgs) if(!requireNamespace(p, quietly = TRUE)) install.packages(p)
+library(TSA)    # untuk eacf
+library(tseries) # untuk adf/kpss
+
+set.seed(1234)
+n <- 300
+burn_in <- 500        
+N <- n + burn_in
+
+phi1 <- 0.5
+phi2 <- 0.2
+theta1 <- 0.4
+theta2 <- 0.6
+e <- rnorm(N, mean = 0, sd = 1)   
+y_manual <- numeric(N)
+y_manual[1] <- e[1]
+y_manual[2] <- phi1 * y_manual[1] + e[2] + theta1 * e[1]
+
+for (t in 3:N) {
+  y_manual[t] <- phi1 * y_manual[t-1] + phi2 * y_manual[t-2] +
+                 e[t] + theta1 * e[t-1] + theta2 * e[t-2]
+}
+
+y_manual <- y_manual[(burn_in + 1):N]  
+y_manual
+```
+```{r}
+#mengguakan sim
+set.seed(1234)
+y_sim_all <- arima.sim(model = list(ar = c(phi1, phi2), ma = c(theta1, theta2)), n = N)
+y_simarma <- y_sim_all[(burn_in + 1):N]
+y_simarma
+```
+```{r}
+#plot timeseries
+par(mfrow = c(3,2), mar = c(4,4,2,1))
+plot.ts(y_manual, main = "Manual ARMA(2,2) - time series", ylab = "y")
+par(mfrow = c(1, 1))
+```
+#Stasioner dalam rataan
+```{r}
+acf(y_manual, main = "Sample ACF (manual)")
+pacf(y_manual, main = "Sample PACF (manual)")
+TSA::eacf(y_manual)
+
+```
+#Berdasarkan hasil analisis, plot ACF menunjukkan pola decay bertahap yang mengindikasikan adanya komponen AR, sementara PACF tampak signifikan hingga lag ke-2 lalu mengalami cutoff, yang mendukung keberadaan AR(2). Hasil ini diperkuat oleh tabel EACF yang menampilkan pola segitiga nol pada orde sekitar (2,2), sehingga secara keseluruhan ketiga pendekatan ACF, PACF, dan EACF konsisten dan mengonfirmasi bahwa data yang dibangkitkan sesuai dengan model ARMA(2,2).
+
+```{r}
+#scatter plot antar Lag
+#Yt
+yt_arma <- y_manual[-1]
+yt_arma
+#Yt-1
+yt_1_arma <- y_manual[-300]
+yt_1_arma
+
+#Yt
+yt_arma2 <- y_manual[-c(1,2)]
+yt_arma2
+#Yt-2
+yt_2_arma2 <- y_manual[-c(299,300)]
+yt_2_arma2
+
+#Yt
+yt_arma3 <- y_manual[-c(1,2,3)]
+yt_arma3
+#Yt-2
+yt_3_arma3 <- y_manual[-c(298,299,300)]
+yt_3_arma3
+
+```
+```{r}
+plot(y=yt_arma,x=yt_arma)
+plot(y=yt_arma2,x=yt_2_arma2)
+plot(y=yt_arma3,x=yt_3_arma3)
+```
+#terlihat memiliki korelasi positif
+
+```{r}
+cor(yt_arma,yt_1_arma)
+cor(yt_arma2,yt_2_arma2)
+cor(yt_arma3,yt_3_arma3)
+```
+```{r}
+phi1 <- 0.5; phi2 <- 0.2
+theta1 <- 0.4; theta2 <- 0.6
+maxlag <- 500
+a <- numeric(maxlag+1); a[1] <- 1; a[2] <- -phi1; a[3] <- -phi2
+b <- numeric(maxlag+1); b[1] <- 1; b[2] <- theta1; b[3] <- theta2
+psi <- numeric(maxlag+1); psi[1] <- 1
+for(k in 1:maxlag){
+  s <- 0
+  if(k-1 >= 1) s <- s + a[2]*psi[k-1]
+  if(k-2 >= 1) s <- s + a[3]*psi[k-2]
+  psi[k+1] <- b[k+1] - s   # careful indexing: R 1-based
+}
+gamma <- numeric(4)
+for(k in 0:3){
+  s <- 0
+  for(j in 0:(maxlag - k)){
+    s <- s + psi[j+1]*psi[j+k+1]
+  }
+  gamma[k+1] <- s
+}
+rho <- gamma / gamma[1]
+round(rho[2:4], 6)
+```
+#hasil korelasi simulasi mendekati teoritis
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
