@@ -1,0 +1,225 @@
+```{r}
+library(forecast)       
+library(tseries)        
+library(ggplot2)       
+library(dplyr)          
+library(lubridate)      
+library(zoo)            
+```
+
+```{r}
+library(readr)
+data <- read.csv("C:/Users/Lenovo/Downloads/daily-minimum-temperatures-in-me (1).csv")
+head(data)
+```
+```{r}
+ts_data <- ts(data$Daily.minimum.temperatures)
+
+plot(ts_data, xaxt = "n", main = "Time Series Harian", ylab = "Temp (°C)")
+axis(1, at = seq(0, length(ts_data), by = 1000))  
+
+```
+```{r}
+adf.test(ts_data)
+adf_result <- adf.test(ts_data)
+adf_result
+
+# Plot dengan garis mean
+plot(ts_data, type="l",
+     main=paste0("ADF Test (p = ", round(adf_result$p.value, 4), ")"),
+     ylab="Nilai", xlab="Urutan Waktu")
+abline(h=mean(ts_data), col="red", lwd=2, lty=2)
+
+```
+#Nilai p-value = 0.01 < 0.05, artinya kita menolak H₀ (hipotesis nol) yang menyatakan bahwa data memiliki akar unit / tidak stasioner. Dengan demikian, data ts_data bersifat stasioner, yaitu rata-rata dan variansnya relatif konstan sepanjang waktu
+```{r}
+plot(ts_data, type = "l",
+     main = "Plot Time Series Asli",
+     ylab = "Nilai (Temp)",
+     xlab = "Urutan Waktu")
+
+```
+
+```{r}
+library(FinTS)
+data$Daily.minimum.temperatures <- as.numeric(data$Daily.minimum.temperatures)
+
+data <- na.omit(data)
+
+# Buat ulang time series
+ts_data <- ts(data$Daily.minimum.temperatures)
+# Lakukan uji ARCH (Engle's test)
+ArchTest(ts_data)
+```
+#Karena p-value < 0.05, bahkan sangat kecil (< 2.2e-16):varians data tidak konstan sepanjang waktu.
+```{r}
+minv <- min(ts_data, na.rm = TRUE)
+shift <- if (minv <= 0) abs(minv) + 1e-6 else 0
+ts_pos <- ts_data + shift
+
+# Box-Cox lebih fleksibel daripada log murni
+lambda <- BoxCox.lambda(ts_pos)
+ts_bc  <- BoxCox(ts_pos, lambda)
+ts_bc
+
+```
+
+
+
+```{r}
+lambda_083 <- 0.83
+ts_bc_083 <- BoxCox(ts_pos, lambda_083)
+
+par(mfrow = c(2,1))
+plot(ts_pos, type="l", col="gray40",
+     main="Data Asli (ts_pos)",
+     ylab="Nilai Asli", xlab="Urutan Waktu")
+plot(ts_bc_083, type="l", col="blue",
+     main=paste0("Setelah Box-Cox Transform (λ = ", lambda_083, ")"),
+     ylab="Nilai Transformasi", xlab="Urutan Waktu")
+par(mfrow = c(1,1))
+```
+```{r}
+library(FinTS)
+ArchTest(ts_bc)
+```
+#Karena p-value < 0.05, maka tolak H₀. Artinya: varians data tidak konstan (ada heteroskedastisitas).
+```{r}
+ts_bc_diff <- diff(ts_bc)
+ts_bc_diff <- na.omit(ts_bc_diff)
+plot(ts_bc_diff, type = "l", main = "Data Setelah Differencing", ylab = "Δ(Box-Cox data)")
+```
+```{r}
+adf_result <- adf.test(ts_bc_diff)
+adf_result
+```
+#stasioneritas terpenuhi p<0,05
+
+```{r}
+arch_result <- ArchTest(ts_bc_diff)
+arch_result
+```
+#Karena p-value < 0.05, maka tolak H₀.Artinya, masih ada heteroskedastisitas (varian berubah-ubah) bahkan setelah differencing.
+
+```{R}
+fit_auto <- auto.arima(ts_bc_diff, stepwise = FALSE, approximation = FALSE)
+summary(fit_auto)
+
+```
+#Model: ARIMA(2,0,1) dengan mean = 0
+#Artinya:
+# $𝑌t$= 0.4973$𝑌𝑡−1$ −0.1333 $𝑌𝑡−2$ − 0.9011$𝜀𝑡-1$ +$𝜀𝑡$
+
+
+
+#ar1 = 0.4973 → pengaruh positif dari nilai sebelumnya (ada sedikit momentum).
+
+#ar2 = -0.1333 → koreksi kecil dari dua langkah sebelumnya.
+
+#ma1 = -0.9011 → error masa lalu sangat kuat berpengaruh ke nilai sekarang (pola shock smoothing).
+#Model ARIMA(2,0,1) dengan mean nol memberikan hasil yang stabil dan tidak bias, dengan residual yang relatif acak (ACF1 ≈ 0). Nilai MASE < 1 menunjukkan model lebih baik dibanding metode naive. Meskipun AIC masih dapat dibandingkan dengan model lain, secara umum model ini layak digunakan untuk peramalan mean, walau varians data sebelumnya masih heteroskedastik.
+
+```{r}
+# Asumsi residual
+library(forecast)
+checkresiduals(fit_auto)   
+
+# Uji efek ARCH
+library(FinTS)
+ArchTest(na.omit(residuals(fit_auto)))
+```
+#Berdasarkan hasil uji Ljung-Box (p = 0.9543), residual model ARIMA(2,0,1) bersifat acak dan tidak memiliki autokorelasi.Namun, hasil uji ARCH-LM (p = 0.000065) menunjukkan adanya heteroskedastisitas pada residual, sehingga asumsi ragam konstan belum terpenuhi.Dengan demikian, model ARIMA(2,0,1) sudah baik dalam menjelaskan pola mean, tetapi masih perlu penanganan tambahan (misalnya model ARIMA-GARCH) bila ingin memodelkan variasi (ragam) data secara menyeluruh.
+
+
+```{r}
+library(forecast)
+
+fc <- forecast(fit_auto, h = 30)
+plot(fc, main = "Peramalan 30 Langkah ke Depan - ARIMA(2,0,1)",
+     ylab = "Nilai Prediksi", xlab = "Waktu")
+
+accuracy(fc)
+```
+#“Nilai ME = -0.0056, RMSE = 1.63, dan MASE = 0.58 menunjukkan bahwa model ARIMA(2,0,1) memiliki akurasi yang cukup baik dengan kesalahan relatif kecil dan tidak bias. Residual model bersifat acak (ACF1 ≈ 0), sehingga model layak digunakan untuk peramalan rata-rata.”
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
