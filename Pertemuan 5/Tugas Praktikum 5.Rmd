@@ -1,0 +1,285 @@
+```{r}
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(MASS)
+```
+
+
+
+```{r}
+df <- read.csv("C:/Users/Lenovo/Downloads/daily-minimum-temperatures-in-me (2).csv")  
+df
+df$Date <- as.Date(df$Date)  # kalau formatnya bukan YYYY-MM-DD, tentukan format=...
+
+# 2) Urutkan berdasarkan tanggal
+df <- df[order(df$Date), ]
+
+# 3) Ganti isi kolom Date dengan 1..n
+df$Date <- seq_len(nrow(df))
+rownames(df) <- NULL
+df
+```
+```{r}
+# pastikan kolom suhu numeric
+df$Daily.minimum.temperatures <- as.numeric(df$Daily.minimum.temperatures)
+
+# bikin time series harian
+y_ts <- ts(
+  df$Daily.minimum.temperatures,
+  start = c(1981, 1),   # tahun 1981, hari ke-1
+  frequency = 365
+)
+
+# contoh pakai
+plot(y_ts)
+```
+```{r}
+# Simulasi deret waktu dengan tren berbeda
+# Tanpa tren
+notrend <- 1 + cumsum(rep(0, 100)) + rnorm(100) |> ts()
+
+# Tren naik
+postrend <- 1 + cumsum(rep(0.2, 200)) + rnorm(200) |> ts() 
+
+# Tren turun
+negtrend <- 1 + cumsum(rep(-0.2, 100)) + rnorm(100) |> ts()
+```
+
+```{r}
+plot_notrend <- notrend |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("First Difference = 0")
+plot_postrend <- postrend |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("First Difference = 0.2")
+plot_negtrend <- negtrend |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("First Difference = -0.2")
+
+ggpubr::ggarrange(plot_notrend, plot_postrend, plot_negtrend, nrow = 3)
+```
+```{r}
+startSpot <- 3
+
+# Cara 1: tambah konstanta 1.5 di selisih
+dt <- ts(arima.sim(n = 100,
+                   list(order = c(1,0,1), ar = 0.2, ma = 0.2),
+                   sd = 2) + 1.5)
+yt <- ts(startSpot + cumsum(dt))
+
+# Cara 2: gunakan mean = 1.5 di arima.sim
+dt_alt <- ts(arima.sim(n = 100,
+                       list(order = c(1,0,1), ar = 0.2, ma = 0.2),
+                       mean = 1.5, sd = 2))
+yt_alt <- ts(startSpot + cumsum(dt_alt))
+
+# Plot hasil simulasi
+plot_dt <- dt |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("Penambahan konstanta 1.5 di selisih")
+plot_yt <- yt |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai")
+plot_dt_alt <- dt_alt |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai") + ggtitle("Mean 1.5 di parameter arima.sim")
+plot_yt_alt <- yt_alt |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai")
+
+# Gabungkan Plot
+ggpubr::ggarrange(plot_dt, plot_yt, plot_dt_alt, plot_yt_alt)
+```
+```{r}
+acf(postrend)
+```
+
+```{r}
+tseries::adf.test(postrend)
+```
+Output: DF = −6.19, lag = 5, p-value < 0.01 (ditulis “p-value smaller than printed p-value”).
+
+Arti: menolak H0 unit-root → “stasioner”.
+
+Catatan penting: tseries::adf.test tidak mengizinkan kita memilih komponen trend/drift, jadi pada data yang jelas naik seperti plot kamu, hasil ini sering menipu (trend deterministik bisa bikin uji ADF tanpa trend tampak “stasioner”).
+→ Validasi lagi dengan ADF yang mengikutkan trend (lihat Next Step 1).
+### Plot Box-Cox
+
+```{r}
+index <- seq(1, 200)
+
+# Uji Box-Cox
+bc <- boxcox(
+  postrend ~ index,
+  lambda = seq(0.8, 1.1, by = 0.001)
+)
+
+# Nilai lambda optimum
+lambda <- bc$x[which.max(bc$y)]
+lambda
+
+# Selang kepercayaan 95% untuk lambda
+ci_lambda <- bc$x[bc$y > max(bc$y) - 0.5 * qchisq(0.95, 1)]
+
+# Batas bawah dan batas atas
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+
+```
+Box-Cox untuk postrend ~ index (gambar 2)
+
+Hasil: λ ≈ 1.00, CI 95% kira-kira [0.964, 1.036].
+
+Arti: tidak perlu transformasi (varian sudah stabil); kalaupun dipaksa, log/λ≠1 tidak justified karena 1 ada di CI.
+```{r}
+# Differencing pertama pada postrend
+postrend_diff1 <- diff(postrend, differences = 1)
+
+# Plot hasil differencing
+ts.plot(postrend_diff1,
+        main = "First-order Differencing dari postrend",
+        col = "blue", lwd = 2)
+
+```
+Setelah differencing d=1, seri berosilasi di sekitar 0 → mean lebih stabil, tren hilang. Ini langkah yang tepat untuk mengatasi non-stasioner karena tren.
+### Plot ACF
+
+```{r}
+acf(postrend_diff1)
+```
+Spike negatif besar di lag 1, sisanya kecil/acak.
+
+Pola klasik MA(1) pada seri yang sudah di-diff.
+→ Kandidat model: ARIMA(0,1,1) (atau bandingkan dengan (1,1,0) dan (1,1,1)).
+### Uji ADF
+
+```{r}
+adf.test(postrend_diff1)
+```
+DF = −9.77, p-value < 0.01 → stasioner kuat.
+Ini mengonfirmasi differencing d=1 cukup.
+
+### Partisi Data
+
+```{r}
+postrend |> 
+  as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) +
+  geom_line() +
+  geom_vline(xintercept = 100, linetype = "dashed", color = "red") +
+  theme_bw()
+```
+Terlihat tren naik jelas; pada 1–100: mean ≈ 11.03, var ≈ 35.38.
+Kalau kamu hitung 101–200, mean pasti lebih tinggi → bukti tidak stasioner pada mean di data asli.
+
+#### Bagian 1 : observasi 1 - 100
+
+```{r}
+postrend1 <- postrend[1:100] |> ts()
+mean(postrend1)
+var(postrend1)
+```
+#### Plot Time Series
+
+```{r}
+postrend1 |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) +
+  geom_line()+theme_bw() +
+  xlab("Obs") + ylab("Nilai")
+```
+#### Plot ACF
+
+```{r}
+acf(postrend1)
+```
+#### Uji ADF
+
+```{r}
+adf.test(postrend1)
+```
+Kembali “p < 0.01”, tapi perhatian sama seperti poin (1): uji ADF default tidak mempertimbangkan trend → bisa misleading. Tetap perlakukan seri asli sebagai non-stasioner, lalu gunakan d=1.
+
+#### Plot Boxcox
+
+```{r}
+index <- seq(1:100)
+
+# Uji Box-Cox
+bc <- boxcox(
+  postrend1 ~ index,
+  lambda = seq(0.5, 1, by = 0.001)
+)
+
+# Nilai lambda optimum (dibulatkan)
+lambda <- bc$x[which.max(bc$y)]
+lambda
+
+# Selang kepercayaan 95% untuk lambda
+ci_lambda <- bc$x[bc$y > max(bc$y) - 0.5 * qchisq(0.95, 1)]
+
+# Batas bawah dan batas atas
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+```
+λ ≈ 0.963, CI [0.86, 1.00] → 1 masih dalam CI; transformasi opsional dan tidak wajib.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
